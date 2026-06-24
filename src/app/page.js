@@ -18,6 +18,20 @@ export default function Home() {
 
   // Ping States
   const [pings, setPings] = useState({});
+  const [hwid, setHwid] = useState('');
+
+  // Get or initialize client HWID
+  useEffect(() => {
+    let savedHwid = localStorage.getItem('sub_extractor_hwid');
+    if (!savedHwid) {
+      savedHwid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+      localStorage.setItem('sub_extractor_hwid', savedHwid);
+    }
+    setHwid(savedHwid);
+  }, []);
 
   // Auto-hide toast after 2 seconds
   useEffect(() => {
@@ -80,7 +94,7 @@ export default function Home() {
     setPings({});
 
     try {
-      const res = await fetch(`/api/parse?url=${encodeURIComponent(url.trim())}`);
+      const res = await fetch(`/api/parse?url=${encodeURIComponent(url.trim())}&hwid=${hwid}`);
       const data = await res.json();
 
       if (!res.ok) {

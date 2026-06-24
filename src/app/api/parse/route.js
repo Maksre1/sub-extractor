@@ -193,9 +193,31 @@ function tryParseRawLinks(text) {
   return proxies.length > 0 ? proxies : null;
 }
 
+function isStubProxy(proxy) {
+  if (!proxy) return false;
+  const name = (proxy.name || '').toLowerCase();
+  const server = (proxy.server || '');
+  const link = (proxy.link || '').toLowerCase();
+  
+  if (server === '0.0.0.0' || server === '127.0.0.1' || proxy.port === 1 || proxy.port === '1') {
+    return true;
+  }
+  
+  if (name.includes('не поддерживает') || name.includes('скачайте') || name.includes('happ') || name.includes('limit')) {
+    return true;
+  }
+  
+  if (link.includes('00000000-0000-0000-0000-000000000000')) {
+    return true;
+  }
+  
+  return false;
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   let targetUrl = searchParams.get('url');
+  const clientHwid = searchParams.get('hwid');
   
   if (!targetUrl) {
     return NextResponse.json({ error: 'Missing subscription url parameter' }, { status: 400 });
@@ -212,17 +234,30 @@ export async function GET(request) {
   let fetchError = null;
   let responseText = '';
   let successfulUA = '';
+  let isHwidEmptyBlock = false;
   
   for (const ua of userAgents) {
     try {
+      const headers = { 'User-Agent': ua };
+      if (clientHwid) {
+        headers['X-Hwid'] = clientHwid;
+        headers['X-Device-Os'] = 'iOS';
+        headers['X-Device-Model'] = 'iPhone';
+      }
+      
       const response = await fetch(targetUrl, {
-        headers: { 'User-Agent': ua },
+        headers: headers,
         next: { revalidate: 60 } // Cache for 60 seconds
       });
       
       if (response.ok) {
         responseText = await response.text();
         successfulUA = ua;
+        if (responseText.trim() === '' && clientHwid) {
+          isHwidEmptyBlock = true;
+        } else {
+          isHwidEmptyBlock = false;
+        }
         break;
       } else {
         fetchError = `HTTP error! Status: ${response.status}`;
@@ -232,9 +267,19 @@ export async function GET(request) {
     }
   }
   
+  if (isHwidEmptyBlock) {
+    return NextResponse.json({
+      error: 'Эта подписка защищена привязкой к устройству (HWID). Пожалуйста, сбросьте привязку в Telegram-боте вашего VPN-провайдера (кнопка «Сбросить HWID / Привязку»), после чего обновите эту страницу.',
+      hwidRequired: true
+    }, { status: 403 });
+  }
+  
   if (!responseText) {
     return NextResponse.json({ error: `Failed to fetch subscription: ${fetchError}` }, { status: 502 });
   }
+  
+  let format = '';
+  let parsedProxies = [];
   
   // Parsing flow
   // 1. Check if it is Happ JSON format (array of configurations)
@@ -252,7 +297,8 @@ export async function GET(request) {
         }
       }
       if (proxies.length > 0) {
-        return NextResponse.json({ format: 'Happ JSON', proxies });
+        format = 'Happ JSON';
+        parsedProxies = proxies;
       }
     }
   } catch (e) {
@@ -260,16 +306,49 @@ export async function GET(request) {
   }
   
   // 2. Check if it is Base64 subscription
-  const base64Proxies = tryParseBase64(responseText);
-  if (base64Proxies) {
-    return NextResponse.json({ format: 'Base64 List', proxies: base64Proxies });
+  if (parsedProxies.length === 0) {
+    const base64Proxies = tryParseBase64(responseText);
+    if (base64Proxies) {
+      format = 'Base64 List';
+      parsedProxies = base64Proxies;
+    }
   }
   
   // 3. Check if it is raw list of URIs
-  const rawProxies = tryParseRawLinks(responseText);
-  if (rawProxies) {
-    return NextResponse.json({ format: 'Raw Link List', proxies: rawProxies });
+  if (parsedProxies.length === 0) {
+    const rawProxies = tryParseRawLinks(responseText);
+    if (rawProxies) {
+      format = 'Raw Link List';
+      parsedProxies = rawProxies;
+    }
   }
   
-  return NextResponse.json({ error: 'Unable to recognize subscription format or no proxy keys found' }, { status: 422 });
+  if (parsedProxies.length === 0) {
+    return NextResponse.json({ error: 'Unable to recognize subscription format or no proxy keys found' }, { status: 422 });
+  }
+  
+  // Filter out stub/warning proxies used by providers to display error messages
+  const cleanProxies = [];
+  let hasHwidWarning = false;
+  
+  for (const p of parsedProxies) {
+    if (isStubProxy(p)) {
+      hasHwidWarning = true;
+    } else {
+      cleanProxies.push(p);
+    }
+  }
+  
+  if (cleanProxies.length === 0 && hasHwidWarning) {
+    return NextResponse.json({
+      error: 'Эта подписка привязана к другому устройству или требует сброса. Пожалуйста, зайдите в Telegram-бот вашего VPN-провайдера, нажмите «Сбросить HWID / Привязку», а затем обновите эту страницу.',
+      hwidRequired: true
+    }, { status: 403 });
+  }
+  
+  if (cleanProxies.length === 0) {
+    return NextResponse.json({ error: 'Не найдено доступных VPN-ключей в этой подписке.' }, { status: 422 });
+  }
+  
+  return NextResponse.json({ format, proxies: cleanProxies });
 }
