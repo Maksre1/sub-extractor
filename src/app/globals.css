@@ -4,17 +4,17 @@
 :root {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   
-  /* Modern SaaS Indigo-charcoal Dark Palette */
-  --bg-primary: #08090b;
-  --bg-secondary: rgba(17, 18, 24, 0.7);
-  --bg-tertiary: #181920;
+  /* Modern Premium Gray Palette */
+  --bg-primary: #181a20;
+  --bg-secondary: rgba(30, 32, 40, 0.75);
+  --bg-tertiary: #262933;
   
-  --border-primary: rgba(255, 255, 255, 0.05);
-  --border-hover: rgba(255, 255, 255, 0.12);
+  --border-primary: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
   
   --text-primary: #f4f4f5;
   --text-secondary: #a1a1aa;
-  --text-muted: #52525b;
+  --text-muted: #6b7280;
   
   --accent-blue: #3b82f6;
   --accent-success: #10b981;
@@ -72,6 +72,7 @@ h1 {
   letter-spacing: -0.04em;
   margin-bottom: 0.5rem;
   color: #fff;
+  text-align: center;
 }
 
 .subtitle {
@@ -80,6 +81,7 @@ h1 {
   line-height: 1.5;
   margin-bottom: 1.5rem;
   font-weight: 400;
+  text-align: center;
 }
 
 /* Privacy Banner */
@@ -489,7 +491,7 @@ h1 {
 }
 
 .modal-content {
-  background: #111218;
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-hover);
   border-radius: 16px;
   padding: 2rem;
