@@ -74,11 +74,11 @@ function parseXrayOutbound(ob, remarks) {
     if (flow) {
       params.set('flow', flow);
     }
-    
     if (network === 'xhttp') {
       const xhttp = ss.xhttpSettings || {};
       if (xhttp.path) params.set('path', xhttp.path);
       if (xhttp.host) params.set('host', xhttp.host);
+      if (xhttp.mode) params.set('mode', xhttp.mode);
     }
     
     const query = params.toString();
@@ -406,6 +406,15 @@ function convertUriToClash(link) {
         proxy.network = 'grpc';
         const serviceName = sp.get('serviceName') || '';
         proxy['grpc-opts'] = { 'grpc-service-name': serviceName };
+      } else if (type === 'xhttp') {
+        proxy.network = 'xhttp';
+        const path = sp.get('path') || '';
+        const host = sp.get('host') || '';
+        const mode = sp.get('mode') || '';
+        proxy['xhttp-opts'] = {};
+        if (path) proxy['xhttp-opts'].path = path;
+        if (host) proxy['xhttp-opts'].host = host;
+        if (mode) proxy['xhttp-opts'].mode = mode;
       }
 
       if (security === 'tls') {
@@ -489,6 +498,12 @@ function convertToYaml(proxies) {
       if (clashProxy['grpc-opts']) {
         yaml += `    grpc-opts:\n`;
         yaml += `      grpc-service-name: ${clashProxy['grpc-opts']['grpc-service-name']}\n`;
+      }
+      if (clashProxy['xhttp-opts']) {
+        yaml += `    xhttp-opts:\n`;
+        if (clashProxy['xhttp-opts'].path) yaml += `      path: ${clashProxy['xhttp-opts'].path}\n`;
+        if (clashProxy['xhttp-opts'].host) yaml += `      host: ${clashProxy['xhttp-opts'].host}\n`;
+        if (clashProxy['xhttp-opts'].mode) yaml += `      mode: ${clashProxy['xhttp-opts'].mode}\n`;
       }
     } else if (clashProxy.type === 'hysteria2') {
       yaml += `    password: ${clashProxy.password}\n`;
