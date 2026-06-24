@@ -218,6 +218,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   let targetUrl = searchParams.get('url');
   const clientHwid = searchParams.get('hwid');
+  const outputFormat = searchParams.get('format');
   
   if (!targetUrl) {
     return NextResponse.json({ error: 'Missing subscription url parameter' }, { status: 400 });
@@ -350,5 +351,157 @@ export async function GET(request) {
     return NextResponse.json({ error: 'Не найдено доступных VPN-ключей в этой подписке.' }, { status: 422 });
   }
   
+  if (outputFormat === 'clash' || outputFormat === 'yaml') {
+    const yamlString = convertToYaml(cleanProxies);
+    return new Response(yamlString, {
+      headers: {
+        'Content-Type': 'text/yaml; charset=utf-8',
+        'Cache-Control': 'public, max-age=60'
+      }
+    });
+  }
+  
   return NextResponse.json({ format, proxies: cleanProxies });
+}
+
+function convertUriToClash(link) {
+  try {
+    const url = new URL(link);
+    const protocol = url.protocol.replace(':', '').toLowerCase();
+    const name = url.hash ? decodeURIComponent(url.hash.substring(1)) : 'Unnamed';
+    const server = url.hostname;
+    const port = parseInt(url.port, 10);
+    const username = url.username;
+
+    if (protocol === 'vless') {
+      const sp = url.searchParams;
+      const type = sp.get('type') || 'tcp';
+      const security = sp.get('security') || 'none';
+      const flow = sp.get('flow') || '';
+      
+      const proxy = {
+        name: name,
+        type: 'vless',
+        server: server,
+        port: port,
+        uuid: username,
+        udp: true,
+        tls: false
+      };
+
+      if (flow) {
+        proxy.flow = flow;
+      }
+
+      if (type === 'tcp') {
+        proxy.network = 'tcp';
+      } else if (type === 'ws') {
+        proxy.network = 'ws';
+        const path = sp.get('path') || '';
+        const host = sp.get('host') || '';
+        proxy['ws-opts'] = {};
+        if (path) proxy['ws-opts'].path = path;
+        if (host) proxy['ws-opts'].headers = { Host: host };
+      } else if (type === 'grpc') {
+        proxy.network = 'grpc';
+        const serviceName = sp.get('serviceName') || '';
+        proxy['grpc-opts'] = { 'grpc-service-name': serviceName };
+      }
+
+      if (security === 'tls') {
+        proxy.tls = true;
+        const sni = sp.get('sni') || '';
+        if (sni) proxy.servername = sni;
+        const fp = sp.get('fp') || '';
+        if (fp) proxy['client-fingerprint'] = fp;
+      } else if (security === 'reality') {
+        proxy.tls = true;
+        const sni = sp.get('sni') || '';
+        if (sni) proxy.servername = sni;
+        const fp = sp.get('fp') || '';
+        if (fp) proxy['client-fingerprint'] = fp;
+        
+        proxy['reality-opts'] = {};
+        const pbk = sp.get('pbk') || '';
+        if (pbk) proxy['reality-opts']['public-key'] = pbk;
+        const sid = sp.get('sid') || '';
+        if (sid) proxy['reality-opts']['short-id'] = sid;
+      }
+
+      return proxy;
+    } else if (protocol === 'hysteria2') {
+      const sp = url.searchParams;
+      const proxy = {
+        name: name,
+        type: 'hysteria2',
+        server: server,
+        port: port,
+        password: username,
+        udp: true
+      };
+      
+      const sni = sp.get('sni') || '';
+      if (sni) proxy.sni = sni;
+      const alpn = sp.get('alpn') || '';
+      if (alpn) proxy.alpn = alpn.split(',');
+
+      return proxy;
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
+}
+
+function convertToYaml(proxies) {
+  let yaml = 'proxies:\n';
+  for (const p of proxies) {
+    const clashProxy = convertUriToClash(p.link);
+    if (!clashProxy) continue;
+
+    yaml += `  - name: "${clashProxy.name}"\n`;
+    yaml += `    type: ${clashProxy.type}\n`;
+    yaml += `    server: ${clashProxy.server}\n`;
+    yaml += `    port: ${clashProxy.port}\n`;
+
+    if (clashProxy.type === 'vless') {
+      yaml += `    uuid: ${clashProxy.uuid}\n`;
+      if (clashProxy.flow) yaml += `    flow: ${clashProxy.flow}\n`;
+      yaml += `    network: ${clashProxy.network || 'tcp'}\n`;
+      yaml += `    tls: ${clashProxy.tls}\n`;
+      yaml += `    udp: ${clashProxy.udp}\n`;
+      if (clashProxy.servername) yaml += `    servername: ${clashProxy.servername}\n`;
+      if (clashProxy['client-fingerprint']) yaml += `    client-fingerprint: ${clashProxy['client-fingerprint']}\n`;
+      
+      if (clashProxy['reality-opts']) {
+        yaml += `    reality-opts:\n`;
+        if (clashProxy['reality-opts']['public-key']) yaml += `      public-key: ${clashProxy['reality-opts']['public-key']}\n`;
+        if (clashProxy['reality-opts']['short-id']) yaml += `      short-id: ${clashProxy['reality-opts']['short-id']}\n`;
+      }
+      if (clashProxy['ws-opts']) {
+        yaml += `    ws-opts:\n`;
+        if (clashProxy['ws-opts'].path) yaml += `      path: ${clashProxy['ws-opts'].path}\n`;
+        if (clashProxy['ws-opts'].headers) {
+          yaml += `      headers:\n`;
+          yaml += `        Host: ${clashProxy['ws-opts'].headers.Host}\n`;
+        }
+      }
+      if (clashProxy['grpc-opts']) {
+        yaml += `    grpc-opts:\n`;
+        yaml += `      grpc-service-name: ${clashProxy['grpc-opts']['grpc-service-name']}\n`;
+      }
+    } else if (clashProxy.type === 'hysteria2') {
+      yaml += `    password: ${clashProxy.password}\n`;
+      if (clashProxy.sni) yaml += `    sni: ${clashProxy.sni}\n`;
+      if (clashProxy.alpn) {
+        yaml += `    alpn:\n`;
+        for (const a of clashProxy.alpn) {
+          yaml += `      - ${a}\n`;
+        }
+      }
+      yaml += `    udp: ${clashProxy.udp}\n`;
+    }
+    yaml += '\n';
+  }
+  return yaml;
 }
